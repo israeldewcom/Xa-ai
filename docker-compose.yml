@@ -1,0 +1,109 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment: {POSTGRES_USER: xa, POSTGRES_PASSWORD: xa, POSTGRES_DB: xa_ai}
+    ports: ["5432:5432"]
+    volumes: ["xa_pg:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U xa -d xa_ai"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment: {MINIO_ROOT_USER: xa, MINIO_ROOT_PASSWORD: xa-secret-change-me}
+    ports: ["9000:9000", "9001:9001"]
+    volumes: ["xa_minio:/data"]
+
+  api:
+    build: .
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    environment: &api_env
+      DATABASE_URL: postgresql+asyncpg://xa:xa@postgres:5432/xa_ai
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: dev-secret-key-replace-in-prod-abcdefghijklmn
+      STORAGE_BACKEND: s3
+      S3_BUCKET: xa-ai
+      S3_REGION: us-east-1
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_ACCESS_KEY_ID: xa
+      S3_SECRET_ACCESS_KEY: xa-secret-change-me
+      INFERENCE_BACKEND: stub
+      VOICE_ENABLED: "true"
+      DEVICE_ENABLED: "true"
+      AUTOMATION_ENABLED: "true"
+    ports: ["8000:8000"]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    volumes: [".:/app"]
+
+  media_worker:
+    build: .
+    command: python -m app.workers.media_worker
+    environment: *api_env
+    depends_on: {postgres: {condition: service_healthy}, redis: {condition: service_healthy}}
+    volumes: [".:/app"]
+    restart: unless-stopped
+
+  outbox_worker:
+    build: .
+    command: python -m app.workers.outbox_worker
+    environment: *api_env
+    depends_on: {postgres: {condition: service_healthy}}
+    volumes: [".:/app"]
+    restart: unless-stopped
+
+  agent_worker:
+    build: .
+    command: python -m app.workers.agent_worker
+    environment: *api_env
+    depends_on: {postgres: {condition: service_healthy}}
+    volumes: [".:/app"]
+    restart: unless-stopped
+
+  scheduler_worker:
+    build: .
+    command: python -m app.workers.scheduler_worker
+    environment: *api_env
+    depends_on: {postgres: {condition: service_healthy}}
+    volumes: [".:/app"]
+    restart: unless-stopped
+
+  purge_worker:
+    build: .
+    command: python -m app.workers.purge_worker
+    environment: *api_env
+    depends_on: {postgres: {condition: service_healthy}}
+    volumes: [".:/app"]
+    restart: unless-stopped
+
+  training_worker:
+    build: .
+    command: python -m app.workers.training_worker
+    environment: *api_env
+    depends_on: {postgres: {condition: service_healthy}}
+    volumes: [".:/app"]
+    profiles: ["training"]
+
+volumes:
+  xa_pg:
+  xa_minio:

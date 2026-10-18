@@ -1,0 +1,3 @@
+-r requirements.txt
+webrtcvad-wheels==2.0.14
+soundfile==0.12.1

@@ -1,0 +1,44 @@
+services:
+  - type: web
+    name: xa-ai-api
+    env: python
+    buildCommand: pip install -r requirements.txt && alembic upgrade head
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health/ready
+    envVars:
+      - fromGroup: xa-ai-secrets
+
+  - type: worker
+    name: xa-ai-media
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m app.workers.media_worker
+    envVars: [{fromGroup: xa-ai-secrets}]
+
+  - type: worker
+    name: xa-ai-outbox
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m app.workers.outbox_worker
+    envVars: [{fromGroup: xa-ai-secrets}]
+
+  - type: worker
+    name: xa-ai-agent
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m app.workers.agent_worker
+    envVars: [{fromGroup: xa-ai-secrets}]
+
+  - type: worker
+    name: xa-ai-scheduler
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m app.workers.scheduler_worker
+    envVars: [{fromGroup: xa-ai-secrets}]
+
+  - type: worker
+    name: xa-ai-purge
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m app.workers.purge_worker
+    envVars: [{fromGroup: xa-ai-secrets}]
