@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: xa
+          POSTGRES_PASSWORD: xa
+          POSTGRES_DB: xa_ai
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U xa -d xa_ai"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    env:
+      DATABASE_URL: postgresql+asyncpg://xa:xa@localhost:5432/xa_ai
+      REDIS_URL: redis://localhost:6379/0
+      SECRET_KEY: ci-secret-abcdefghijklmnopqrstuvwxyz-0123456789
+      ENVIRONMENT: development
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: ruff check app/
+      - run: mypy --strict app/ || true  # enforce after initial cleanup
+      - run: alembic upgrade head
+      - run: alembic check
+      - run: alembic downgrade base
+      - run: alembic upgrade head
+      - run: pytest --cov=app --cov-fail-under=75 -ra
+      - run: python scripts/check_environment.py
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t xa-ai:ci .
